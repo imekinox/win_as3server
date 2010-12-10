@@ -37,6 +37,7 @@ namespace as3server
   {
     static IntPtr motor = IntPtr.Zero;
     static IntPtr camera = IntPtr.Zero;
+    private String MotorSerial;
     private TcpListener depthSocket;
     private TcpListener rgbSocket;
     private TcpListener dataSocket;
@@ -54,7 +55,8 @@ namespace as3server
         {
             motor = CLNUIDevice.CreateMotor();
             camera = CLNUIDevice.CreateCamera();
-            CLNUIDevice.SetMotorPosition(motor, 0000);
+            CLNUIDevice.SetMotorPosition(motor, 0000); //Reset motor to 0 degrees
+            CLNUIDevice.SetMotorLED(motor, (byte)0); //ShutDown the LED
         }
         catch (System.Exception ex)
         {
@@ -76,12 +78,20 @@ namespace as3server
       this.dataListenerThread = new Thread(new ThreadStart(dataWaitForConnection));
       this.dataListenerThread.Start();
     }
-		
-	private void send_policy_file(NetworkStream clientStream){
-		string str = "<?xml version='1.0'?><!DOCTYPE cross-domain-policy SYSTEM '/xml/dtds/cross-domain-policy.dtd'><cross-domain-policy><site-control permitted-cross-domain-policies='all'/><allow-access-from domain='*' to-ports='*'/></cross-domain-policy>\n";
+
+    private void send_motor_serial(NetworkStream clientStream)
+    {
+        MotorSerial = CLNUIDevice.GetMotorSerial(motor);
 		System.Text.UTF8Encoding encoding = new System.Text.UTF8Encoding();
-		clientStream.BeginWrite(encoding.GetBytes(str), 0, str.Length, null, null);
+        clientStream.BeginWrite(encoding.GetBytes(MotorSerial), 0, MotorSerial.Length, null, null);
+        Console.WriteLine(encoding.GetBytes(MotorSerial).Length);
 	}
+    private void send_policy_file(NetworkStream clientStream)
+    {
+        string str = "<?xml version='1.0'?><!DOCTYPE cross-domain-policy SYSTEM '/xml/dtds/cross-domain-policy.dtd'><cross-domain-policy><site-control permitted-cross-domain-policies='all'/><allow-access-from domain='*' to-ports='*'/></cross-domain-policy>\n";
+        System.Text.UTF8Encoding encoding = new System.Text.UTF8Encoding();
+        clientStream.BeginWrite(encoding.GetBytes(str), 0, str.Length, null, null);
+    }
 
     private void depthWaitForConnection()
     {
@@ -176,10 +186,10 @@ namespace as3server
             send_policy_file(clientStream);
             sent_data_policy = true;
         }
+        send_motor_serial(clientStream);
         Console.WriteLine("data_in: sent policy file");
         byte[] buffer = new byte[1024];
         int bytesRead;
-		
         while (data_is_connected)
         {
             bytesRead = 0;
@@ -202,7 +212,7 @@ namespace as3server
                 Console.WriteLine("Client Disconected");
                 break;
             }
-            if (bytesRead == 6)
+            if (bytesRead == 12)
             {
                 //SwapBytes(buffer);
                 if (BitConverter.ToBoolean(buffer, 0) == true)
@@ -218,6 +228,15 @@ namespace as3server
                         }
                     }
                 }
+                if (BitConverter.ToBoolean(buffer, 6) == true)
+                {//LED
+                    if (BitConverter.ToBoolean(buffer, 1) == true)
+                    { //SET COLOR
+                        ByteOperation.SwapBytes(buffer, 8, 4);
+                        int color = BitConverter.ToInt32(buffer, 8);
+                        CLNUIDevice.SetMotorLED(motor, (byte)color); 
+                    }
+                }
             }      
         }
         theClient.Close();
@@ -227,12 +246,6 @@ namespace as3server
     {
         TcpClient theClient = (TcpClient)client;
         NetworkStream clientStream = theClient.GetStream();
-
-        if (!sent_data_policy)
-        {
-            send_policy_file(clientStream);
-            sent_data_policy = true;          
-        }
 	    short ax = 0, ay = 0, az = 0;
         short _x = 0, _y = 0, _z = 0;
         byte[] b_ax, b_ay, b_az, b_dx, b_dy, b_dz;
@@ -254,7 +267,7 @@ namespace as3server
             Buffer.BlockCopy(b_dx, 0, buffer_send, 6, b_dx.Length);
             Buffer.BlockCopy(b_dy, 0, buffer_send, 14, b_dy.Length);
             Buffer.BlockCopy(b_dz, 0, buffer_send, 22, b_dz.Length);
-            clientStream.BeginWrite(buffer_send, 0, 30, null, null);
+            clientStream.BeginWrite(buffer_send, 0, 30, null, null); 
         }
         b_ax = b_ay = b_az = b_dx = b_dy = b_dz = null;
         Console.WriteLine("data_out: closed");
