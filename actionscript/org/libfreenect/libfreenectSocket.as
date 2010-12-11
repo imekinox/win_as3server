@@ -48,6 +48,7 @@
 		private var _socket:Socket;
 		private var _buffer:ByteArray;
 		private var _port:Number;
+		private var _policy_file:Boolean = false;
 
 		public function libfreenectSocket()
 		{		
@@ -59,7 +60,7 @@
 			_socket.addEventListener(Event.CONNECT, onSocketConnect);
 		}
 		
-		public function connect(host:String = 'localhost', port:uint = 6001):void
+		public function connect(host:String = 'localhost', port:uint = 6003):void
 		{
 			_port = port;
 			_packet_size = (_port == 6003) ? libfreenect.DATA_IN_SIZE : libfreenect.RAW_IMG_SIZE;
@@ -93,18 +94,15 @@
 		
 		private function onSocketData(event:ProgressEvent):void
 		{
-			//trace(_socket.bytesAvailable);
-			if(_socket.bytesAvailable == 235){
-				var _byte_arr:ByteArray = new ByteArray();
-				_socket.readBytes(_byte_arr, 0, _socket.bytesAvailable);
-				trace("policy_file : " + _byte_arr);
+			if(!_policy_file){
+				if(_socket.bytesAvailable > 234){
+					var _byte_arr:ByteArray = new ByteArray();
+					_socket.readBytes(_byte_arr, 0, 235);
+					trace("policy_file : " + _byte_arr);
+					_policy_file = true;
+				}
 			}
-			if(_socket.bytesAvailable == 12){
-				var _byte_arr:ByteArray = new ByteArray();
-				_socket.readBytes(_byte_arr, 0, _socket.bytesAvailable);
-				trace("Serial Number: " + _byte_arr);
-			}
-			if(_socket.bytesAvailable > 0) {
+			if(_socket.bytesAvailable > 0 && _policy_file) {
 				if(_socket.bytesAvailable >= _packet_size){
 					_socket.readBytes(_buffer, 0, _packet_size);
 					_buffer.endian = Endian.LITTLE_ENDIAN;
@@ -112,7 +110,6 @@
 					dispatchEvent(new libfreenectSocketEvent(libfreenectSocketEvent.ONDATA, _buffer));
 				}
 			}
-			//_socket.flush();
 		}
 		
 		private function onSocketError(event:IOErrorEvent):void{

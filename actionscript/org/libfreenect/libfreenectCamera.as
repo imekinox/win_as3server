@@ -82,7 +82,7 @@ package org.libfreenect
 			if(!canvas_rgb) canvas_rgb = new BitmapData(640, 480, false, 0xFF000000);
 			rgb_bmp = new Bitmap(canvas_rgb);
 			container.addChild(rgb_bmp);
-			socket_rgb.connect("localhost",6002);	
+			socket_rgb.connect(libfreenect.SERVER_IP,libfreenect.RGB_PORT);	
 		}
 		
 		public function initDepthStream(container:Sprite):void{
@@ -91,7 +91,7 @@ package org.libfreenect
 			if(!canvas_depth) canvas_depth = new BitmapData(640, 480, false, 0xFF000000);
 			depth_bmp = new Bitmap(canvas_depth);
 			container.addChild(depth_bmp);
-			socket_depth.connect("localhost",6001);
+			socket_depth.connect(libfreenect.SERVER_IP,libfreenect.DEPTH_PORT);
 		}
 		
 		public function on():void 

@@ -28,70 +28,43 @@ package org.libfreenect
 {
 	import org.libfreenect.libfreenect;
 	import org.libfreenect.libfreenectData;
-	import org.libfreenect.events.libfreenectDataEvent;
-	import org.libfreenect.events.libfreenectLedEvent;
 	
 	import flash.utils.ByteArray;
 	import flash.events.EventDispatcher;
 	
-	public class libfreenectLed extends EventDispatcher
-	{
-		private static var _singleton_lock:Boolean = false;
-		private static var _instance:libfreenectLed;
+	public class libfreenectMotor
+	{	
+		public static function set position(position:Number):void 
+		{
+			var _info:libfreenectData = libfreenectData.instance;
+			var data:ByteArray = new ByteArray;
+			data.writeByte(libfreenect.MOTOR_ID);
+			data.writeByte(1); //MOVE MOTOR
+			data.writeInt(position);
+			if(_info.sendData(data) != libfreenect.SUCCESS) {
+				throw new Error('Data was not complete');
+			}
+			
+		}
 		
-		private var _current_color:Number;
 		// 0 = Turn Off
 		// 1 = Green
 		// 2 = Red
 		// 3 = Orange
 		// 4 = Blink Green-Off
 		// 6 = Blink Red-Orange
-		public var _info:libfreenectData;
-
-		public function libfreenectLed()
+		public static function set ledColor(color:Number):void 
 		{
-			if ( !_singleton_lock ) throw new Error( 'Use libfreenectLed.instance' );
-				
-			_info = libfreenectData.instance;
-			_info.addEventListener(libfreenectDataEvent.DATA_RECEIVED, onDataReceived);
-		}
-		
-		private function onDataReceived(event:libfreenectDataEvent):void{
-			var object:Object = event.data; // Acelerometer _infoo so far
-		}
-		
-		public function set color(color:Number):void 
-		{
+			var _info:libfreenectData = libfreenectData.instance;
 			var data:ByteArray = new ByteArray;
-			data.writeByte(libfreenect.LED_ID);
-			data.writeByte(1); //MOVE MOTOR
+			data.writeByte(1); //MOTOR
+			data.writeByte(2); //LED
 			data.writeInt(color);
 			if(_info.sendData(data) == libfreenect.SUCCESS){
-				dispatchEvent(new libfreenectLedEvent(libfreenectLedEvent.TURNED_ON, color));
+				//EventDispatcher.dispatchEvent(new libfreenectLedEvent(libfreenectLedEvent.TURNED_ON, color));
 			} else {
 				throw new Error('Data was not complete');
 			}
-			
-		}
-		
-		public function get color():Number{
-			return _current_color;
-		}
-		
-		public static function set instance(instance:libfreenectLed):void 
-		{
-			throw new Error('libfreenectLed.instance is read-only');
-		}
-		
-		public static function get instance():libfreenectLed 
-		{
-			if ( _instance == null )
-			{
-				_singleton_lock = true;
-				_instance = new libfreenectLed();
-				_singleton_lock = false;
-			}
-			return _instance;
 		}
 	}
 }

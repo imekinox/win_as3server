@@ -48,7 +48,7 @@ package org.libfreenect
 			
 			socket.addEventListener(libfreenectSocketEvent.ONDATA,onDataReceived);
 			
-			socket.connect("localhost", 6003);
+			socket.connect(libfreenect.SERVER_IP,libfreenect.DATA_PORT);
 		}
 		
 		private function onDataReceived(event:libfreenectSocketEvent):void{
@@ -61,7 +61,6 @@ package org.libfreenect
 			object.dy = data.readDouble();
 			object.dz = data.readDouble();
 			dispatchEvent(new libfreenectDataEvent(libfreenectDataEvent.DATA_RECEIVED, object));
-			//trace(data);
 		}
 		
 		public function sendData(data:ByteArray):int{

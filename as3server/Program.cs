@@ -35,9 +35,12 @@ namespace as3server
 {
   class Server
   {
-    static IntPtr motor = IntPtr.Zero;
-    static IntPtr camera = IntPtr.Zero;
-    private String MotorSerial;
+    private static IntPtr motor = IntPtr.Zero;
+    private static IntPtr camera = IntPtr.Zero;
+	private static int _devCount;
+    private static String devSerial;
+	private static String MotorSerial;
+		
     private TcpListener depthSocket;
     private TcpListener rgbSocket;
     private TcpListener dataSocket;
@@ -48,28 +51,41 @@ namespace as3server
     private Boolean rgb_is_connected = false;
     private Boolean data_is_connected = false;
     private Boolean sent_data_policy = false;
-
-    public static void Main() {
-        new Server();
-        try
-        {
-            motor = CLNUIDevice.CreateMotor();
-            camera = CLNUIDevice.CreateCamera();
-            CLNUIDevice.SetMotorPosition(motor, 0000); //Reset motor to 0 degrees
-            CLNUIDevice.SetMotorLED(motor, (byte)0); //ShutDown the LED
-        }
-        catch (System.Exception ex)
-        {
-           Console.WriteLine(ex.Message);
-        }
-    }
+	private Boolean sent_depth_policy = false;
+	private Boolean sent_rgb_policy = false;
+	
+	public static void Main() {
+		try
+		{
+			//counting the attached Kinect devices
+			_devCount = CLNUIDevice.GetDeviceCount();
+			if (_devCount == 0)//No Device Found EXIT
+			{
+				Environment.Exit(0);
+			}
+			for (int i = 0; i < _devCount; i++) //Start Motor and Camera for every device found
+			{
+				//TODO adding them to an object array. For now works for one device.
+				devSerial = CLNUIDevice.GetDeviceSerial(i);
+				motor = CLNUIDevice.CreateMotor(devSerial);
+				camera = CLNUIDevice.CreateCamera(devSerial);
+				CLNUIDevice.SetMotorPosition(motor, 0000); //Reset motor to 0 degrees
+				CLNUIDevice.SetMotorLED(motor, (byte)0); //ShutDown the LED
+			}
+			new Server();
+		}
+		catch (System.Exception ex)
+		{
+			Console.WriteLine(ex.Message);
+		}
+	}
 		
     public Server()
     {
       this.depthSocket = new TcpListener(IPAddress.Any, 6001);
       this.depthListenerThread = new Thread(new ThreadStart(depthWaitForConnection));
       this.depthListenerThread.Start();
-
+			
       this.rgbSocket = new TcpListener(IPAddress.Any, 6002);
       this.rgbListenerThread = new Thread(new ThreadStart(rgbWaitForConnection));
       this.rgbListenerThread.Start();
@@ -77,6 +93,7 @@ namespace as3server
       this.dataSocket = new TcpListener(IPAddress.Any, 6003);
       this.dataListenerThread = new Thread(new ThreadStart(dataWaitForConnection));
       this.dataListenerThread.Start();
+
     }
 
     private void send_motor_serial(NetworkStream clientStream)
@@ -86,10 +103,12 @@ namespace as3server
         clientStream.BeginWrite(encoding.GetBytes(MotorSerial), 0, MotorSerial.Length, null, null);
         Console.WriteLine(encoding.GetBytes(MotorSerial).Length);
 	}
+
     private void send_policy_file(NetworkStream clientStream)
     {
         string str = "<?xml version='1.0'?><!DOCTYPE cross-domain-policy SYSTEM '/xml/dtds/cross-domain-policy.dtd'><cross-domain-policy><site-control permitted-cross-domain-policies='all'/><allow-access-from domain='*' to-ports='*'/></cross-domain-policy>\n";
         System.Text.UTF8Encoding encoding = new System.Text.UTF8Encoding();
+		Console.WriteLine("policy_file: size = " + str.Length);
         clientStream.BeginWrite(encoding.GetBytes(str), 0, str.Length, null, null);
     }
 
@@ -103,8 +122,8 @@ namespace as3server
             depth_is_connected = true;
             Console.WriteLine("Depth Client Conected");
 
-            Thread dataInThread = new Thread(new ParameterizedThreadStart(depth_out));
-            dataInThread.Start(depthClient);
+            Thread depthOutThread = new Thread(new ParameterizedThreadStart(depth_out));
+            depthOutThread.Start(depthClient);
             Console.WriteLine("depth_out: thread created");
         }
     }
@@ -114,16 +133,19 @@ namespace as3server
         TcpClient theClient = (TcpClient)client;
         NetworkStream clientStream = theClient.GetStream();
         CLNUIDevice.StartCamera(camera);
-        send_policy_file(clientStream);
+		if(!sent_depth_policy){
+        	send_policy_file(clientStream);
+			sent_depth_policy = true;
+		}
         int i;
         short[] raw_depth = new short[640*480];
         IntPtr depthRAW = Marshal.AllocHGlobal(640 * 480 * 2);
+        byte[] buf_depth = new byte[640*480*4];
 
         while (depth_is_connected)
         {
             CLNUIDevice.GetCameraDepthFrameRAW(camera, depthRAW, 0);
             Marshal.Copy(depthRAW, raw_depth, 0, 640 * 480);
-            byte[] buf_depth = new byte[640*480*4];
 		    for (i=0; i<640 * 480; i++) {
 			    buf_depth[4 * i + 0] = 0x00; //B
                 buf_depth[4 * i + 1] = 0x00; //G
@@ -153,7 +175,54 @@ namespace as3server
         {
             Console.WriteLine("## Wait rgb client");
             TcpClient rgbClient = this.rgbSocket.AcceptTcpClient();
+
+            rgb_is_connected = true;
+            Console.WriteLine("RGB Client Conected");
+
+            Thread rgbOutThread = new Thread(new ParameterizedThreadStart(rgb_out));
+            rgbOutThread.Start(rgbClient);
+            Console.WriteLine("rgb_out: thread created");
         }
+    }
+
+    private unsafe void rgb_out(object client)
+    {
+        TcpClient theClient = (TcpClient)client;
+        NetworkStream clientStream = theClient.GetStream();
+        CLNUIDevice.StartCamera(camera);
+		if(!sent_rgb_policy){
+        	send_policy_file(clientStream);
+			sent_rgb_policy = true;
+		}
+        //int i;
+        byte[] buf_rgb = new byte[640*480*4];
+        //short[] raw_rgb = new short[640*480];
+        IntPtr rgb32 = Marshal.AllocHGlobal(640 * 480 * 4);
+
+        while (rgb_is_connected)
+        {
+            CLNUIDevice.GetCameraColorFrameRGB32(camera, rgb32, 0);
+            Marshal.Copy(rgb32, buf_rgb, 0, 640 * 480 * 4);
+		    /*for (i=0; i<640 * 480; i++) {
+			    buf_depth[4 * i + 0] = 0x00; //B
+                buf_depth[4 * i + 1] = 0x00; //G
+			    buf_depth[4 * i + 2] = 0x00; //R
+			    buf_depth[4 * i + 3] = 0xFF;
+                //Console.WriteLine("if (" + raw_depth[i] + " < 2000");
+                if (raw_depth[i] < 800 && raw_depth[i] > 600)
+                {
+				    buf_depth[4 * i + 0] = 0xFF;
+				    buf_depth[4 * i + 1] = 0xFF;
+				    buf_depth[4 * i + 2] = 0xFF;
+				    buf_depth[4 * i + 3] = 0xFF;
+			    }
+		    }*/
+            clientStream.Write(buf_rgb, 0, buf_rgb.Length);
+        }
+        Marshal.FreeHGlobal(rgb32);
+        CLNUIDevice.StopCamera(camera);
+        Console.WriteLine("rgb_out: closed");
+        theClient.Close();
     }
 
     private void dataWaitForConnection()
@@ -186,8 +255,7 @@ namespace as3server
             send_policy_file(clientStream);
             sent_data_policy = true;
         }
-        send_motor_serial(clientStream);
-        Console.WriteLine("data_in: sent policy file");
+        //send_motor_serial(clientStream);
         byte[] buffer = new byte[1024];
         int bytesRead;
         while (data_is_connected)
@@ -212,30 +280,32 @@ namespace as3server
                 Console.WriteLine("Client Disconected");
                 break;
             }
-            if (bytesRead == 12)
+            if (bytesRead == 6)
             {
                 //SwapBytes(buffer);
-                if (BitConverter.ToBoolean(buffer, 0) == true)
-                { //MOTOR
-                    if (BitConverter.ToBoolean(buffer,1) == true)
-                    { //MOVE
-                        ByteOperation.SwapBytes(buffer, 2, 4);
-                        int angle = BitConverter.ToInt32(buffer, 2);
-                        if (angle < 31 && angle > -31)
-                        {                            
-                            short motorPosition = (short)(angle * (8000 / 31));
-                            CLNUIDevice.SetMotorPosition(motor, motorPosition);
-                        }
-                    }
-                }
-                if (BitConverter.ToBoolean(buffer, 6) == true)
-                {//LED
-                    if (BitConverter.ToBoolean(buffer, 1) == true)
-                    { //SET COLOR
-                        ByteOperation.SwapBytes(buffer, 8, 4);
-                        int color = BitConverter.ToInt32(buffer, 8);
-                        CLNUIDevice.SetMotorLED(motor, (byte)color); 
-                    }
+                switch(buffer[0])
+                {
+					case 1: //MOTOR
+						switch(buffer[1]) {
+							case 1: //MOVE
+								ByteOperation.SwapBytes(buffer, 2, 4);
+                        		int angle = BitConverter.ToInt32(buffer, 2);
+                        		if (angle < 31 && angle > -31)
+                        		{                            
+                       			    short motorPosition = (short)(angle * (8000 / 31));
+                        		    CLNUIDevice.SetMotorPosition(motor, motorPosition);
+                        		}
+							break;
+							case 2: //LED COLOR
+								ByteOperation.SwapBytes(buffer, 2, 4);
+                        		int color = BitConverter.ToInt32(buffer, 2);
+                        		if (color < 7 && color > -1)
+                        		{                            
+									CLNUIDevice.SetMotorLED(motor, (byte)color);
+                        		}
+							break;
+						}
+					break;
                 }
             }      
         }

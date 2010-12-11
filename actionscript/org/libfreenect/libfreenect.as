@@ -32,11 +32,15 @@ package org.libfreenect
 
 		public static const SUCCESS:int = 0;
 		public static const ERROR:int = -1;
-		
+
+		public static const SERVER_IP:String = "localhost";
+		public static const DEPTH_PORT:int = 6001;
+		public static const RGB_PORT:int = 6002;
+		public static const DATA_PORT:int = 6003;
+
 		public static const CAMERA_ID:int = 0;
 		public static const MOTOR_ID:int = 1;
 		public static const MIC_ID:int = 2;
-		public static const LED_ID:int = 3;
 		
 		public static const IMG_WIDTH:int = 640;
 		public static const IMG_HEIGHT:int = 480;
