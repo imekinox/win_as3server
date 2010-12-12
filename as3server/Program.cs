@@ -35,24 +35,35 @@ namespace as3server
 {
   class Server
   {
+	//declaring motor,camera,device count,
     private static IntPtr motor = IntPtr.Zero;
     private static IntPtr camera = IntPtr.Zero;
 	private static int _devCount;
     private static String devSerial;
 	private static String MotorSerial;
-		
+	//declaring the 4 socket listeners  (SECURITY,DEPTH,RGB,DATA)
+    private TcpListener securitySocket;
     private TcpListener depthSocket;
     private TcpListener rgbSocket;
     private TcpListener dataSocket;
+	//declaring the 4 Threads  (SECURITY,DEPTH,RGB,DATA)
+	private Thread securityListenerThread;	
     private Thread depthListenerThread;
     private Thread rgbListenerThread;
     private Thread dataListenerThread;
+	//declaring the 2 Threads for data communication
+	private Thread dataInThread;
+	private Thread dataOutThread;
+	//declaring other threads
+	private Thread securityOutThread;
+	private Thread depthOutThread;
+	private Thread rgbOutThread;
+ 	//declaring the 3 socket connection status flags  (DEPTH,RGB,DATA)
     private Boolean depth_is_connected = false;
     private Boolean rgb_is_connected = false;
     private Boolean data_is_connected = false;
-    private Boolean sent_data_policy = false;
-	private Boolean sent_depth_policy = false;
-	private Boolean sent_rgb_policy = false;
+	//camera is running
+	private Boolean camera_is_started = false;
 	
 	public static void Main() {
 		try
@@ -72,6 +83,7 @@ namespace as3server
 				CLNUIDevice.SetMotorPosition(motor, 0000); //Reset motor to 0 degrees
 				CLNUIDevice.SetMotorLED(motor, (byte)0); //ShutDown the LED
 			}
+			//Start server if everything went OK with the device
 			new Server();
 		}
 		catch (System.Exception ex)
@@ -82,17 +94,22 @@ namespace as3server
 		
     public Server()
     {
-      this.depthSocket = new TcpListener(IPAddress.Any, 6001);
-      this.depthListenerThread = new Thread(new ThreadStart(depthWaitForConnection));
-      this.depthListenerThread.Start();
-			
-      this.rgbSocket = new TcpListener(IPAddress.Any, 6002);
-      this.rgbListenerThread = new Thread(new ThreadStart(rgbWaitForConnection));
-      this.rgbListenerThread.Start();
-
-      this.dataSocket = new TcpListener(IPAddress.Any, 6003);
-      this.dataListenerThread = new Thread(new ThreadStart(dataWaitForConnection));
-      this.dataListenerThread.Start();
+		//starts Listener and Thread for Flash Security Policy
+    	/*this.securitySocket = new TcpListener(IPAddress.Any, 843);
+		this.securityListenerThread = new Thread(new ThreadStart(securityWaitForConnection));
+		this.securityListenerThread.Start();*/
+		//starts Listener and Thread for Depth
+    	this.depthSocket = new TcpListener(IPAddress.Any, 6001);
+		this.depthListenerThread = new Thread(new ThreadStart(depthWaitForConnection));
+		this.depthListenerThread.Start();
+		//starts Listener and Thread for RGB
+		this.rgbSocket = new TcpListener(IPAddress.Any, 6002);
+		this.rgbListenerThread = new Thread(new ThreadStart(rgbWaitForConnection));
+		this.rgbListenerThread.Start();
+		//starts Listener and Thread for Data
+		this.dataSocket = new TcpListener(IPAddress.Any, 6003);
+		this.dataListenerThread = new Thread(new ThreadStart(dataWaitForConnection));
+		this.dataListenerThread.Start();
 
     }
 
@@ -104,82 +121,180 @@ namespace as3server
         Console.WriteLine(encoding.GetBytes(MotorSerial).Length);
 	}
 
-    private void send_policy_file(NetworkStream clientStream)
+	/*
+     * Listen for security policy request
+     */
+    private void securityWaitForConnection()
     {
-        string str = "<?xml version='1.0'?><!DOCTYPE cross-domain-policy SYSTEM '/xml/dtds/cross-domain-policy.dtd'><cross-domain-policy><site-control permitted-cross-domain-policies='all'/><allow-access-from domain='*' to-ports='*'/></cross-domain-policy>\n";
-        System.Text.UTF8Encoding encoding = new System.Text.UTF8Encoding();
-		Console.WriteLine("policy_file: size = " + str.Length);
-        clientStream.BeginWrite(encoding.GetBytes(str), 0, str.Length, null, null);
-    }
+        this.securitySocket.Start();
+        while(true){
+			//blocks until a client has connected to the server
+			Console.WriteLine("Waiting for Security Policy Request: {0} {1} ", securitySocket.Server.ProtocolType, securitySocket.LocalEndpoint);
+            TcpClient client = this.depthSocket.AcceptTcpClient();
 
+            Console.WriteLine("Security Request Client Conected" + client.Client.LocalEndPoint);
+
+			//create a thread to handle communication 
+            //with connected client
+            securityOutThread = new Thread(new ParameterizedThreadStart(security_out));
+            securityOutThread.Start(client);
+        }
+    }
+		
+	/*
+	 * If security policy is requested in port 843 send it
+	 */
+	private void security_out(object client)
+    {
+        TcpClient tcpClient = (TcpClient)client;
+        NetworkStream clientStream = tcpClient.GetStream();
+
+        byte[] message = new byte[1024];
+        int bytesRead;
+ 		Console.WriteLine("Policy Client Connected: " + tcpClient.Client.LocalEndPoint);	
+        while (true)
+        {
+            bytesRead = 0;
+            try
+            {
+                //blocks until a client sends a message
+                bytesRead = clientStream.Read(message, 0, 1024);
+            }
+            catch
+            {
+                //a socket error has occured
+                break;
+            }
+            if (bytesRead == 0)
+            {
+                //the client has disconnected from the server
+                Console.WriteLine("Policy Client Disconnected: " + tcpClient.Client.LocalEndPoint);
+                break;
+            }
+            //master policy stream
+            if (new UTF8Encoding().GetString(message, 0, bytesRead).Contains("<policy-file-request/>"))
+            {
+				//policy file for every domain on 6001, 6002 and 6003 sockets
+		        string str = "<?xml version='1.0'?>" +
+		        	"<!DOCTYPE cross-domain-policy SYSTEM '/xml/dtds/cross-domain-policy.dtd'>" +
+		        	"<cross-domain-policy><site-control permitted-cross-domain-policies='all'/>" +
+		        	"<allow-access-from domain='*' to-ports='6001-6003'/>" +
+		        	"</cross-domain-policy>";
+				System.Text.UTF8Encoding encoding = new System.Text.UTF8Encoding();
+		        Console.WriteLine("Sending Policy Stream. Length = {0}", str.Length);
+		        clientStream.Write(encoding.GetBytes(str), 0, str.Length);
+		        clientStream.WriteByte(0);
+		        clientStream.WriteByte(13); //very important to terminate XmlSocket data in this way, otherwise Flash can't read it. 
+		        clientStream.Flush();
+            }
+        }
+        tcpClient.Close();
+		securityOutThread.Abort();
+    }
+		
+	/*
+     * Listen for depth client
+     */
     private void depthWaitForConnection()
     {
         this.depthSocket.Start();
         while(true){
-            Console.WriteLine("## Wait depth client");
+			//blocks until a client has connected to the server
+			Console.WriteLine("Waiting for DEPTH Client: {0} {1} ", depthSocket.Server.ProtocolType, depthSocket.LocalEndpoint);
             TcpClient depthClient = this.depthSocket.AcceptTcpClient();
-
+			
+			//Changing depth connection status flag
             depth_is_connected = true;
-            Console.WriteLine("Depth Client Conected");
+            Console.WriteLine("Depth Client Conected: " + depthSocket.LocalEndpoint);
 
-            Thread depthOutThread = new Thread(new ParameterizedThreadStart(depth_out));
+			//create a thread to handle communication 
+            //with connected client
+            depthOutThread = new Thread(new ParameterizedThreadStart(depth_out));
             depthOutThread.Start(depthClient);
-            Console.WriteLine("depth_out: thread created");
         }
     }
-
+		
+	/*
+     * Sending depth data to the client
+     */
     private unsafe void depth_out(object client)
     {
         TcpClient theClient = (TcpClient)client;
         NetworkStream clientStream = theClient.GetStream();
-        CLNUIDevice.StartCamera(camera);
-		if(!sent_depth_policy){
-        	send_policy_file(clientStream);
-			sent_depth_policy = true;
-		}
+		
+		//Starting the NUI camera
+		if(!camera_is_started)
+        	CLNUIDevice.StartCamera(camera);
         int i;
+			
+		//raw_depth buffer managed memory
         short[] raw_depth = new short[640*480];
+		//Allocate depthRAW unmanaged memory 
         IntPtr depthRAW = Marshal.AllocHGlobal(640 * 480 * 2);
+		//buff depth sent to the server (BGRA)
         byte[] buf_depth = new byte[640*480*4];
 
         while (depth_is_connected)
         {
+			//putting frame into depthRAW unmanaged memory
             CLNUIDevice.GetCameraDepthFrameRAW(camera, depthRAW, 0);
+			//Copying deptRAW unmanaged memory to raw_depth managed memroy
             Marshal.Copy(depthRAW, raw_depth, 0, 640 * 480);
+			//For every pixel in the frame
 		    for (i=0; i<640 * 480; i++) {
+				//Black pixels
 			    buf_depth[4 * i + 0] = 0x00; //B
                 buf_depth[4 * i + 1] = 0x00; //G
 			    buf_depth[4 * i + 2] = 0x00; //R
 			    buf_depth[4 * i + 3] = 0xFF;
-                //Console.WriteLine("if (" + raw_depth[i] + " < 2000");
+				//If pixel is between 800 and 600 depth
                 if (raw_depth[i] < 800 && raw_depth[i] > 600)
                 {
+					//white pixels
 				    buf_depth[4 * i + 0] = 0xFF;
 				    buf_depth[4 * i + 1] = 0xFF;
 				    buf_depth[4 * i + 2] = 0xFF;
 				    buf_depth[4 * i + 3] = 0xFF;
 			    }
 		    }
-            clientStream.Write(buf_depth, 0, buf_depth.Length);
+			//send buffer to client
+			try{
+            	clientStream.BeginWrite(buf_depth, 0, buf_depth.Length, null, null);
+			} catch {
+				depth_is_connected = false;		
+			}
         }
+		//free memory
         Marshal.FreeHGlobal(depthRAW);
-        CLNUIDevice.StopCamera(camera);
+		raw_depth = null;
+		buf_depth = null;
+		//stop NUI camera
+		if(camera_is_started)
+        	CLNUIDevice.StopCamera(camera);
         Console.WriteLine("depth_out: closed");
         theClient.Close();
+		depthOutThread.Abort();
     }
-
+		
+	/*
+     * Listen for RGB client 
+     */
     private void rgbWaitForConnection()
     {
         this.rgbSocket.Start();
         while (true)
         {
-            Console.WriteLine("## Wait rgb client");
+			//blocks until a client has connected to the server
+			Console.WriteLine("Waiting for RGB Client: {0} {1} ", rgbSocket.Server.ProtocolType, rgbSocket.LocalEndpoint);
             TcpClient rgbClient = this.rgbSocket.AcceptTcpClient();
-
+				
+			//Changing RGB connection status flag
             rgb_is_connected = true;
-            Console.WriteLine("RGB Client Conected");
-
-            Thread rgbOutThread = new Thread(new ParameterizedThreadStart(rgb_out));
+            Console.WriteLine("RGB Client Conected: " + rgbSocket.LocalEndpoint);
+				
+			//create a thread to handle communication 
+            //with connected client
+            rgbOutThread = new Thread(new ParameterizedThreadStart(rgb_out));
             rgbOutThread.Start(rgbClient);
             Console.WriteLine("rgb_out: thread created");
         }
@@ -189,58 +304,61 @@ namespace as3server
     {
         TcpClient theClient = (TcpClient)client;
         NetworkStream clientStream = theClient.GetStream();
-        CLNUIDevice.StartCamera(camera);
-		if(!sent_rgb_policy){
-        	send_policy_file(clientStream);
-			sent_rgb_policy = true;
-		}
-        //int i;
+		
+		//Starting the NUI camera
+		if(!camera_is_started)
+        	CLNUIDevice.StartCamera(camera);
+			
+		// buf_rgb managed memory buffer
         byte[] buf_rgb = new byte[640*480*4];
-        //short[] raw_rgb = new short[640*480];
+		// rgb32 unmanaged memory allocation
         IntPtr rgb32 = Marshal.AllocHGlobal(640 * 480 * 4);
 
         while (rgb_is_connected)
         {
+			//putting frame into unmanaged memory
             CLNUIDevice.GetCameraColorFrameRGB32(camera, rgb32, 0);
+			//copy unmanaged memory to managed memory buffer
             Marshal.Copy(rgb32, buf_rgb, 0, 640 * 480 * 4);
-		    /*for (i=0; i<640 * 480; i++) {
-			    buf_depth[4 * i + 0] = 0x00; //B
-                buf_depth[4 * i + 1] = 0x00; //G
-			    buf_depth[4 * i + 2] = 0x00; //R
-			    buf_depth[4 * i + 3] = 0xFF;
-                //Console.WriteLine("if (" + raw_depth[i] + " < 2000");
-                if (raw_depth[i] < 800 && raw_depth[i] > 600)
-                {
-				    buf_depth[4 * i + 0] = 0xFF;
-				    buf_depth[4 * i + 1] = 0xFF;
-				    buf_depth[4 * i + 2] = 0xFF;
-				    buf_depth[4 * i + 3] = 0xFF;
-			    }
-		    }*/
-            clientStream.Write(buf_rgb, 0, buf_rgb.Length);
+			//send managed memory buffer to client
+			try{
+            	clientStream.BeginWrite(buf_rgb, 0, buf_rgb.Length,null,null);
+			} catch {
+				rgb_is_connected = false;		
+			}
         }
+		//Free memory
         Marshal.FreeHGlobal(rgb32);
-        CLNUIDevice.StopCamera(camera);
+		buf_rgb = null;
+		//stop NUI camera
+		if(camera_is_started)
+        	CLNUIDevice.StopCamera(camera);
         Console.WriteLine("rgb_out: closed");
         theClient.Close();
+		rgbOutThread.Abort();
     }
-
+	
+	/*
+     * Listen for data client
+     */
     private void dataWaitForConnection()
     {
         this.dataSocket.Start();
-
         while (true)
         {
-            Console.WriteLine("## Wait data client");
+            //blocks until a client has connected to the server
+			Console.WriteLine("Waiting for Data Client: {0} {1} ", dataSocket.Server.ProtocolType, dataSocket.LocalEndpoint);
             TcpClient client = this.dataSocket.AcceptTcpClient();
-
+				
+			//Changing Data connection status flag
             data_is_connected = true;
-            Console.WriteLine("Data Client Conected");
-
-            Thread dataInThread = new Thread(new ParameterizedThreadStart(data_in));
+				
+			//create 2 thread to handle data in/out communication 
+            //data in thread
+            dataInThread = new Thread(new ParameterizedThreadStart(data_in));
             dataInThread.Start(client);
-
-            Thread dataOutThread = new Thread(new ParameterizedThreadStart(data_out));
+			//data out thread
+            dataOutThread = new Thread(new ParameterizedThreadStart(data_out));
             dataOutThread.Start(client);
         }
     }
@@ -249,40 +367,31 @@ namespace as3server
     {
         TcpClient theClient = (TcpClient)client;
         NetworkStream clientStream = theClient.GetStream();
-
-        if (!sent_data_policy)
-        {
-            send_policy_file(clientStream);
-            sent_data_policy = true;
-        }
-        //send_motor_serial(clientStream);
+			
+        Console.WriteLine("Data Client Conected: " + theClient.Client.LocalEndPoint);
+			
         byte[] buffer = new byte[1024];
         int bytesRead;
         while (data_is_connected)
         {
             bytesRead = 0;
-            Console.WriteLine("data_in: waiting for data");
             try
             {
                 //blocks until a client sends a message
+            	Console.WriteLine("data_in: waiting for data");
                 bytesRead = clientStream.Read(buffer, 0, 1024);
             }
             catch
             {
                 //a socket error has occured
-                Console.WriteLine("data_in: socket error!");
-                break;
+				data_is_connected = false;
             }
-
             if (bytesRead == 0)
             {
                 data_is_connected = false;
-                Console.WriteLine("Client Disconected");
-                break;
             }
             if (bytesRead == 6)
             {
-                //SwapBytes(buffer);
                 switch(buffer[0])
                 {
 					case 1: //MOTOR
@@ -307,9 +416,12 @@ namespace as3server
 						}
 					break;
                 }
-            }      
+            }
         }
+		dataOutThread.Abort();
+        Console.WriteLine("data_in: Client Disconected");
         theClient.Close();
+		dataInThread.Abort();
      }
 
     private void data_out(object client)
@@ -319,11 +431,9 @@ namespace as3server
 	    short ax = 0, ay = 0, az = 0;
         short _x = 0, _y = 0, _z = 0;
         byte[] b_ax, b_ay, b_az, b_dx, b_dy, b_dz;
-
         while (data_is_connected)
         {
             System.Threading.Thread.Sleep(1000 / 30);
-            byte[] buffer_send = new byte[30];
             CLNUIDevice.GetMotorAccelerometer(motor, ref _x, ref _y, ref _z);
             b_ax = ByteOperation.RSwapBytes(BitConverter.GetBytes(ax));
             b_ay = ByteOperation.RSwapBytes(BitConverter.GetBytes(ay));
@@ -331,17 +441,15 @@ namespace as3server
             b_dx = ByteOperation.RSwapBytes(BitConverter.GetBytes((double)_x));
             b_dy = ByteOperation.RSwapBytes(BitConverter.GetBytes((double)_y));
             b_dz = ByteOperation.RSwapBytes(BitConverter.GetBytes((double)_z));
-            Buffer.BlockCopy(b_ax, 0, buffer_send, 0, b_ax.Length);
-            Buffer.BlockCopy(b_ay, 0, buffer_send, 2, b_ay.Length);
-            Buffer.BlockCopy(b_az, 0, buffer_send, 4, b_az.Length);
-            Buffer.BlockCopy(b_dx, 0, buffer_send, 6, b_dx.Length);
-            Buffer.BlockCopy(b_dy, 0, buffer_send, 14, b_dy.Length);
-            Buffer.BlockCopy(b_dz, 0, buffer_send, 22, b_dz.Length);
-            clientStream.BeginWrite(buffer_send, 0, 30, null, null); 
+            clientStream.Write(b_ax, 0, b_ax.Length);
+            clientStream.Write(b_ay, 0, b_ay.Length);
+            clientStream.Write(b_az, 0, b_az.Length);
+            clientStream.Write(b_dx, 0, b_dx.Length);
+            clientStream.Write(b_dy, 0, b_dy.Length);
+            clientStream.Write(b_dz, 0, b_dz.Length);
+            clientStream.Flush();
         }
         b_ax = b_ay = b_az = b_dx = b_dy = b_dz = null;
-        Console.WriteLine("data_out: closed");
-        theClient.Close();
      }
   }
 }

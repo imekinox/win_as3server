@@ -94,15 +94,15 @@
 		
 		private function onSocketData(event:ProgressEvent):void
 		{
-			if(!_policy_file){
+			/*if(!_policy_file){
 				if(_socket.bytesAvailable > 234){
 					var _byte_arr:ByteArray = new ByteArray();
 					_socket.readBytes(_byte_arr, 0, 235);
 					trace("policy_file : " + _byte_arr);
 					_policy_file = true;
 				}
-			}
-			if(_socket.bytesAvailable > 0 && _policy_file) {
+			}*/
+			if(_socket.bytesAvailable > 0) {
 				if(_socket.bytesAvailable >= _packet_size){
 					_socket.readBytes(_buffer, 0, _packet_size);
 					_buffer.endian = Endian.LITTLE_ENDIAN;
