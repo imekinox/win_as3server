@@ -38,9 +38,9 @@ package org.libfreenect
 		public static function getBlobs(r:BitmapData):Array 
 		{
 			var i:int;
+			var blobs:Array = new Array();
 			while (i < libfreenect.MAX_BLOBS)
 			{
-				var blobs:Array = new Array();
 			    var mainRect:Rectangle = r.getColorBoundsRect(libfreenect.BLOB_MASK, libfreenect.BLOB_COLOR);
 			    if (mainRect.isEmpty()) break;
 			    var xx:int = mainRect.x;

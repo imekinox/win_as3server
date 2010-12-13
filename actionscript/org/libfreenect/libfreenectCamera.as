@@ -65,7 +65,7 @@ package org.libfreenect
 			canvas_depth.setPixels(new Rectangle(0,0,640, 480), event.data);
 			canvas_depth.unlock();
 			blobs = libfreenectBlobs.getBlobs(canvas_depth);
-			if(blobs.length > 0)
+			if(blobs.length > 0) 
 				dispatchEvent(new libfreenectCameraEvent(libfreenectCameraEvent.BLOBS_RECEIVED, blobs));
 			event.data.clear();
 		}

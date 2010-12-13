@@ -53,7 +53,7 @@ package org.libfreenect
 		public static const BLOB_MASK:uint = 0xFFFFFFFF;
 		public static const BLOB_COLOR:uint = 0xFFFFFFFF;
 		public static const BLOB_FILL_COLOR:uint = 0xFF0000FF;
-		public static const BLOB_PROCESSED_COLOR:uint = 0x00FF00FF;
+		public static const BLOB_PROCESSED_COLOR:uint = 0xFF00FF00;
 		public static const BLOB_MIN_WIDTH:uint = 30;
 		public static const BLOB_MAX_WIDTH:uint = 120;
 		public static const BLOB_MIN_HEIGHT:uint = 30;

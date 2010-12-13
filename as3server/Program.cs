@@ -81,7 +81,7 @@ namespace as3server
 				motor = CLNUIDevice.CreateMotor(devSerial);
 				camera = CLNUIDevice.CreateCamera(devSerial);
 				CLNUIDevice.SetMotorPosition(motor, 0000); //Reset motor to 0 degrees
-				CLNUIDevice.SetMotorLED(motor, (byte)0); //ShutDown the LED
+				CLNUIDevice.SetMotorLED(motor, (byte)1); //Green LED
 			}
 			//Start server if everything went OK with the device
 			new Server();
@@ -205,7 +205,7 @@ namespace as3server
 			
 			//Changing depth connection status flag
             depth_is_connected = true;
-            Console.WriteLine("Depth Client Conected: " + depthSocket.LocalEndpoint);
+            Console.WriteLine("Depth Client Conected: " + depthClient.Client.LocalEndPoint);
 
 			//create a thread to handle communication 
             //with connected client
@@ -223,8 +223,10 @@ namespace as3server
         NetworkStream clientStream = theClient.GetStream();
 		
 		//Starting the NUI camera
-		if(!camera_is_started)
-        	CLNUIDevice.StartCamera(camera);
+		if(!camera_is_started) {
+			CLNUIDevice.StartCamera(camera);
+			camera_is_started = true;
+		}
         int i;
 			
 		//raw_depth buffer managed memory
@@ -259,7 +261,7 @@ namespace as3server
 		    }
 			//send buffer to client
 			try{
-            	clientStream.BeginWrite(buf_depth, 0, buf_depth.Length, null, null);
+            	clientStream.Write(buf_depth, 0, buf_depth.Length);
 			} catch {
 				depth_is_connected = false;		
 			}
@@ -269,8 +271,10 @@ namespace as3server
 		raw_depth = null;
 		buf_depth = null;
 		//stop NUI camera
-		if(camera_is_started)
-        	CLNUIDevice.StopCamera(camera);
+		if(camera_is_started) {
+			CLNUIDevice.StopCamera(camera);
+			camera_is_started = false;
+		}
         Console.WriteLine("depth_out: closed");
         theClient.Close();
 		depthOutThread.Abort();
@@ -306,8 +310,10 @@ namespace as3server
         NetworkStream clientStream = theClient.GetStream();
 		
 		//Starting the NUI camera
-		if(!camera_is_started)
-        	CLNUIDevice.StartCamera(camera);
+		if(!camera_is_started) {
+			CLNUIDevice.StartCamera(camera);
+			camera_is_started = true;
+		}
 			
 		// buf_rgb managed memory buffer
         byte[] buf_rgb = new byte[640*480*4];
@@ -322,7 +328,7 @@ namespace as3server
             Marshal.Copy(rgb32, buf_rgb, 0, 640 * 480 * 4);
 			//send managed memory buffer to client
 			try{
-            	clientStream.BeginWrite(buf_rgb, 0, buf_rgb.Length,null,null);
+            	clientStream.Write(buf_rgb, 0, buf_rgb.Length);
 			} catch {
 				rgb_is_connected = false;		
 			}
@@ -331,8 +337,10 @@ namespace as3server
         Marshal.FreeHGlobal(rgb32);
 		buf_rgb = null;
 		//stop NUI camera
-		if(camera_is_started)
-        	CLNUIDevice.StopCamera(camera);
+		if(camera_is_started) {
+			CLNUIDevice.StopCamera(camera);
+			camera_is_started = false;
+		}
         Console.WriteLine("rgb_out: closed");
         theClient.Close();
 		rgbOutThread.Abort();
